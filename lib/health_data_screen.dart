@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:health/health.dart';
 import 'package:health_package_poc/utils.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:intl/intl.dart';
 
 class HealthDataScreen extends StatefulWidget {
   const HealthDataScreen({super.key});
@@ -36,59 +36,20 @@ class _HealthDataScreenState extends State<HealthDataScreen> {
   // Both Android's Google Fit and iOS' HealthKit have more types that we support in the enum list [HealthDataType]
   // Add more - like AUDIOGRAM, HEADACHE_SEVERE etc. to try them.
   static const types = dataTypesAndroid;
-  // Or selected types
-  // static final types = [
-  //   HealthDataType.WEIGHT,
-  //   HealthDataType.STEPS,
-  //   HealthDataType.HEIGHT,
-  //   HealthDataType.BLOOD_GLUCOSE,
-  //   HealthDataType.WORKOUT,
-  //   HealthDataType.BLOOD_PRESSURE_DIASTOLIC,
-  //   HealthDataType.BLOOD_PRESSURE_SYSTOLIC,
-  //   // Uncomment these lines on iOS - only available on iOS
-  //   // HealthDataType.AUDIOGRAM
-  // ];
 
   // with coresponsing permissions
   // READ only
   // final permissions = types.map((e) => HealthDataAccess.READ).toList();
   // Or READ and WRITE
-  final permissions = types.map((e) => HealthDataAccess.READ_WRITE).toList();
 
   // create a HealthFactory for use in the app
   HealthFactory health = HealthFactory(useHealthConnectIfAvailable: true);
 
-  Future authorize() async {
-    // If we are trying to read Step Count, Workout, Sleep or other data that requires
-    // the ACTIVITY_RECOGNITION permission, we need to request the permission first.
-    // This requires a special request authorization call.
-    //
-    // The location permission is requested for Workouts using the Distance information.
-    await Permission.activityRecognition.request();
-    await Permission.location.request();
-    
-
-    // Check if we have permission
-    bool? hasPermissions =
-        await health.hasPermissions(types, permissions: permissions);
-
-    // hasPermissions = false because the hasPermission cannot disclose if WRITE access exists.
-    // Hence, we have to request with WRITE as well.
-    hasPermissions = false;
-
-    bool authorized = false;
-    if (!hasPermissions) {
-      // requesting access to the data types before reading them
-      try {
-        authorized =
-            await health.requestAuthorization(types, permissions: permissions);
-      } catch (error) {
-        print("Exception in authorize: $error");
-      }
-    }
-
-    setState(() => _state =
-        (authorized) ? AppState.AUTHORIZED : AppState.AUTH_NOT_GRANTED);
+  @override
+  void initState() {
+    fetchData();
+    fetchStepData();
+    super.initState();
   }
 
   /// Fetch data points from the health plugin and show them in the app.
@@ -232,7 +193,9 @@ class _HealthDataScreenState extends State<HealthDataScreen> {
 
   Future revokeAccess() async {
     try {
-      await health.revokePermissions();
+      await health.revokePermissions().then((value) {
+        Navigator.pop(context);
+      });
     } catch (error) {
       print("Caught exception in revokeAccess: $error");
     }
@@ -245,7 +208,7 @@ class _HealthDataScreenState extends State<HealthDataScreen> {
         Container(
             padding: const EdgeInsets.all(20),
             child: const CircularProgressIndicator(
-              strokeWidth: 10,
+              strokeWidth: 5,
             )),
         const Text('Fetching data...')
       ],
@@ -253,32 +216,240 @@ class _HealthDataScreenState extends State<HealthDataScreen> {
   }
 
   Widget _contentDataReady() {
-    return ListView.builder(
-        itemCount: _healthDataList.length,
-        itemBuilder: (_, index) {
-          HealthDataPoint p = _healthDataList[index];
-          if (p.value is AudiogramHealthValue) {
-            return ListTile(
-              title: Text("${p.typeString}: ${p.value}"),
-              trailing: Text('${p.unitString}'),
-              subtitle: Text('${p.dateFrom} - ${p.dateTo}'),
-            );
-          }
-          if (p.value is WorkoutHealthValue) {
-            return ListTile(
-              title: Text(
-                  "${p.typeString}: ${(p.value as WorkoutHealthValue).totalEnergyBurned} ${(p.value as WorkoutHealthValue).totalEnergyBurnedUnit?.name}"),
-              trailing: Text(
-                  '${(p.value as WorkoutHealthValue).workoutActivityType.name}'),
-              subtitle: Text('${p.dateFrom} - ${p.dateTo}'),
-            );
-          }
-          return ListTile(
-            title: Text("${p.typeString}: ${p.value}"),
-            trailing: Text('${p.unitString}'),
-            subtitle: Text('${p.dateFrom} - ${p.dateTo}'),
-          );
-        });
+    return Column(
+      children: [
+        const Text(
+          "24 hours health Data",
+          style: TextStyle(fontSize: 20.0),
+        ),
+        Expanded(
+          child: GridView.builder(
+              itemCount: _healthDataList.length,
+              padding: const EdgeInsets.all(40.0),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 1,
+                mainAxisSpacing: 30,
+              ),
+              itemBuilder: (_, index) {
+                HealthDataPoint p = _healthDataList[index];
+
+                if (p.value is AudiogramHealthValue) {
+                  return Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(10.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            p.type.name,
+                            style: const TextStyle(
+                                fontSize: 16.0, fontWeight: FontWeight.w500),
+                            textAlign: TextAlign.center,
+                          ),
+                          Text(
+                            '${p.value.toString()} ${p.unitString}',
+                            style: const TextStyle(
+                                fontSize: 15.0, fontWeight: FontWeight.w400),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+                if (p.value is WorkoutHealthValue) {
+                  String fromDate =
+                      DateFormat('dd MMMM yyyy hh:mm aaa').format(p.dateFrom);
+                  String toDate =
+                      DateFormat('dd MMMM yyyy hh:mm aaa').format(p.dateTo);
+                  return Card(
+                    elevation: 4,
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Center(
+                            child: Text(
+                              p.type.name,
+                              style: const TextStyle(
+                                  fontSize: 22.0, fontWeight: FontWeight.w600),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          Row(
+                            children: [
+                              const Text(
+                                'Total Distance: ',
+                                style: TextStyle(
+                                    fontSize: 16.0,
+                                    fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.start,
+                              ),
+                              Text(
+                                '${(p.value as WorkoutHealthValue).totalDistance} M',
+                                style: const TextStyle(
+                                    fontSize: 16.0,
+                                    fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.start,
+                              ),
+                            ],
+                          ),
+                          Row(
+                            children: [
+                              const Text(
+                                'Total Energy Burn: ',
+                                style: TextStyle(
+                                    fontSize: 16.0,
+                                    fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.start,
+                              ),
+                              Text(
+                                '${(p.value as WorkoutHealthValue).totalEnergyBurned} Kcal',
+                                style: const TextStyle(
+                                    fontSize: 16.0,
+                                    fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.start,
+                              ),
+                            ],
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              const Text(
+                                'Workout Activity Type: ',
+                                style: TextStyle(
+                                    fontSize: 16.0,
+                                    fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.start,
+                              ),
+                              Flexible(
+                                child: Text(
+                                  '${(p.value as WorkoutHealthValue).workoutActivityType.name}',
+                                  style: const TextStyle(
+                                      fontSize: 14.0,
+                                      fontWeight: FontWeight.w500),
+                                  textAlign: TextAlign.start,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'From: ',
+                                style: TextStyle(
+                                    fontSize: 18.0,
+                                    fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.center,
+                              ),
+                              Text(
+                                fromDate,
+                                style: const TextStyle(
+                                    fontSize: 16.0,
+                                    fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'TO: ',
+                                style: TextStyle(
+                                    fontSize: 18.0,
+                                    fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.center,
+                              ),
+                              Text(
+                                toDate,
+                                style: const TextStyle(
+                                    fontSize: 16.0,
+                                    fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                } else {
+                  double value =
+                      double.parse(p.value.toString()).truncateToDouble();
+                  String fromDate =
+                      DateFormat('dd MMMM yyyy hh:mm aaa').format(p.dateFrom);
+                  String toDate =
+                      DateFormat('dd MMMM yyyy hh:mm aaa').format(p.dateTo);
+                  return Card(
+                    elevation: 4,
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            p.type.name,
+                            style: const TextStyle(
+                                fontSize: 22.0, fontWeight: FontWeight.w600),
+                            textAlign: TextAlign.center,
+                          ),
+                          Text(
+                            '${value.toString()} ${p.unitString}',
+                            style: const TextStyle(
+                                fontSize: 18.0, fontWeight: FontWeight.w500),
+                            textAlign: TextAlign.center,
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text(
+                                'From: ',
+                                style: TextStyle(
+                                    fontSize: 18.0,
+                                    fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.center,
+                              ),
+                              Text(
+                                fromDate,
+                                style: const TextStyle(
+                                    fontSize: 16.0,
+                                    fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text(
+                                'TO: ',
+                                style: TextStyle(
+                                    fontSize: 18.0,
+                                    fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.center,
+                              ),
+                              Text(
+                                toDate,
+                                style: const TextStyle(
+                                    fontSize: 16.0,
+                                    fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+              }),
+        ),
+      ],
+    );
   }
 
   Widget _contentNoData() {
@@ -357,59 +528,109 @@ class _HealthDataScreenState extends State<HealthDataScreen> {
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('Health Example'),
+          title: const Text('Health Data'),
+          actions: [
+            IconButton(
+                onPressed: revokeAccess,
+                icon: const Icon(Icons.logout_rounded)),
+            const SizedBox(
+              width: 10.0,
+            )
+          ],
         ),
         body: Column(
           children: [
-            Wrap(
-              spacing: 10,
-              children: [
-                TextButton(
-                    onPressed: authorize,
-                    style: const ButtonStyle(
-                        backgroundColor:
-                            MaterialStatePropertyAll(Colors.blue)),
-                    child:
-                        const Text("Auth", style: TextStyle(color: Colors.white))),
-                TextButton(
-                    onPressed: fetchData,
-                    style: const ButtonStyle(
-                        backgroundColor:
-                            MaterialStatePropertyAll(Colors.blue)),
-                    child: const Text("Fetch Data",
-                        style: TextStyle(color: Colors.white))),
-                TextButton(
-                    onPressed: addData,
-                    style: const ButtonStyle(
-                        backgroundColor:
-                            MaterialStatePropertyAll(Colors.blue)),
-                    child: const Text("Add Data",
-                        style: TextStyle(color: Colors.white))),
-                TextButton(
-                    onPressed: deleteData,
-                    style: const ButtonStyle(
-                        backgroundColor:
-                            MaterialStatePropertyAll(Colors.blue)),
-                    child: const Text("Delete Data",
-                        style: TextStyle(color: Colors.white))),
-                TextButton(
-                    onPressed: fetchStepData,
-                    style: const ButtonStyle(
-                        backgroundColor:
-                            MaterialStatePropertyAll(Colors.blue)),
-                    child: const Text("Fetch Step Data",
-                        style: TextStyle(color: Colors.white))),
-                TextButton(
-                    onPressed: revokeAccess,
-                    style: const ButtonStyle(
-                        backgroundColor:
-                            MaterialStatePropertyAll(Colors.blue)),
-                    child: const Text("Revoke Access",
-                        style: TextStyle(color: Colors.white))),
-              ],
+            const SizedBox(
+              height: 20.0,
             ),
-            const Divider(thickness: 3),
-            Expanded(child: Center(child: _content()))
+            const Text(
+              "Steps Data From Midnight to Now",
+              style: TextStyle(fontSize: 20.0),
+            ),
+            const SizedBox(
+              height: 5.0,
+            ),
+
+            SizedBox(
+              height: 150,
+              width: 150,
+              child: Card(
+                elevation: 4,
+                color: Theme.of(context).colorScheme.onPrimary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(80),
+                  //set border radius more than 50% of height and width to make circle
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      "No of Steps",
+                      style: TextStyle(fontSize: 20.0),
+                    ),
+                    Text(
+                      _nofSteps.toString(),
+                      style: const TextStyle(
+                          fontSize: 20.0, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // Wrap(
+            //   spacing: 10,
+            //   children: [
+            //     // TextButton(
+            //     //     onPressed: authorize,
+            //     //     style: const ButtonStyle(
+            //     //         backgroundColor:
+            //     //             MaterialStatePropertyAll(Colors.blue)),
+            //     //     child:
+            //     //         const Text("Auth", style: TextStyle(color: Colors.white))),
+            //     // TextButton(
+            //     //     onPressed: fetchData,
+            //     //     style: const ButtonStyle(
+            //     //         backgroundColor:
+            //     //             MaterialStatePropertyAll(Colors.blue)),
+            //     //     child: const Text("Fetch Data",
+            //     //         style: TextStyle(color: Colors.white))),
+            //     // TextButton(
+            //     //     onPressed: addData,
+            //     //     style: const ButtonStyle(
+            //     //         backgroundColor:
+            //     //             MaterialStatePropertyAll(Colors.blue)),
+            //     //     child: const Text("Add Data",
+            //     //         style: TextStyle(color: Colors.white))),
+            //     // TextButton(
+            //     //     onPressed: deleteData,
+            //     //     style: const ButtonStyle(
+            //     //         backgroundColor:
+            //     //             MaterialStatePropertyAll(Colors.blue)),
+            //     //     child: const Text("Delete Data",
+            //     //         style: TextStyle(color: Colors.white))),
+            //     // TextButton(
+            //     //     onPressed: fetchStepData,
+            //     //     style: const ButtonStyle(
+            //     //         backgroundColor:
+            //     //             MaterialStatePropertyAll(Colors.blue)),
+            //     //     child: const Text("Fetch Step Data",
+            //     //         style: TextStyle(color: Colors.white))),
+            //
+            //
+            // // TextButton(
+            //     //     onPressed: revokeAccess,
+            //     //     style: const ButtonStyle(
+            //     //         backgroundColor:
+            //     //             MaterialStatePropertyAll(Colors.blue)),
+            //     //     child: const Text("Revoke Access",
+            //     //         style: TextStyle(color: Colors.white))),
+            //   ],
+            // ),
+            const SizedBox(
+              height: 15.0,
+            ),
+
+            Expanded(child: _content())
           ],
         ),
       ),
